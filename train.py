@@ -75,21 +75,22 @@ def main(): #训练程序的主函数
     # exit()
 
     """网络生成器输出模拟，判决器分别对真实标签和模拟标签进行判决"""
-    genara_data = generator(noise=noise_data) #得到生成器的输出[1,512,512,1]
-    discr_proc = discriminator(image=prac_data) #判别器返回的对真实标签的判别结果
+    genera_data = generator(noise=noise_data) #得到生成器的输出[1,512,512,1]
+    discr_prac = discriminator(image=prac_data) #判别器返回的对真实标签的判别结果
 
-    discr_fake = discriminator(image=genara_data) #判别器返回的对生成(虚假的)标签判别结果
+    discr_fake = discriminator(image=genera_data) #判别器返回的对生成(虚假的)标签判别结果
 
     """损失函数"""
-    gen_loss_GAN = tf.reduce_mean(-tf.log(dis_fake + EPS)) #计算生成器损失中的GAN_loss部分
-    gen_loss_L1 = tf.reduce_mean(l1_loss(gen_label, train_label)) #计算生成器损失中的L1_loss部分
-    gen_loss = gen_loss_GAN * args.lamda_gan_weight + gen_loss_L1 * args.lamda_l1_weight #计算生成器的loss
+    fake_loss = tf.reduce_mean(-tf.log(discr_fake + EPS)) #计算生成器在判决器中的判决
+    g_diff_d = tf.reduce_mean(l1_loss(genera_data, prac_data)) #判决器训练前，计算生成数据和实际数据差距
+    prac_loss = tf.reduce_mean(-tf.log(discr_prac)) #计算训练实际数据的损害
 
-    dis_loss = tf.reduce_mean(-(tf.log(dis_real + EPS) + tf.log(1 - dis_fake + EPS))) #计算判别器的loss
+    genera_loss = fake_loss+g_diff_d# 计算生成器的loss
+    discr_loss = tf.reduce_mean(-(tf.log(discr_prac + EPS) + tf.log(1 - discr_fake + EPS))) #计算判别器的loss
 
     """tensorboard内容"""
-    gen_loss_sum = tf.summary.scalar("gen_loss", gen_loss) #记录生成器loss的日志
-    dis_loss_sum = tf.summary.scalar("dis_loss", dis_loss) #记录判别器loss的日志
+    gen_loss_sum = tf.summary.scalar("gen_loss", genera_loss) #记录生成器loss的日志
+    dis_loss_sum = tf.summary.scalar("dis_loss", discr_loss) #记录判别器loss的日志
 
     summary_writer = tf.summary.FileWriter(args.snapshot_dir, graph=tf.get_default_graph()) #日志记录器
 
@@ -98,24 +99,25 @@ def main(): #训练程序的主函数
 
     d_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #判别器训练器
     g_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #生成器训练器
+
     """梯度计算"""
-    d_grads_and_vars = d_optim.compute_gradients(dis_loss, var_list=d_vars) #计算判别器参数梯度
+    d_grads_and_vars = d_optim.compute_gradients(discr_loss, var_list=d_vars) #计算判别器参数梯度
     d_train = d_optim.apply_gradients(d_grads_and_vars) #更新判别器参数
 
-    g_grads_and_vars = g_optim.compute_gradients(gen_loss, var_list=g_vars) #计算生成器参数梯度
+    g_grads_and_vars = g_optim.compute_gradients(genera_loss, var_list=g_vars) #计算生成器参数梯度
     g_train = g_optim.apply_gradients(g_grads_and_vars) #更新生成器参数
 
     """参数更新操作"""
     train_op = tf.group(d_train, g_train) #train_op表示了参数更新操作
+    """系统设置"""
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True #设定显存不超量使用
-
     sess = tf.Session(config=config) #新建会话层
     init = tf.global_variables_initializer() #参数初始化器
-
     sess.run(init) #初始化所有可训练参数
 
-    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50) #模型保存器
+    # 模型保存器
+    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50)
 
     counter = 0 #counter记录训练步数
 
